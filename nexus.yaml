@@ -1,0 +1,112 @@
+---
+apiVersion: v1
+kind: PersistentVolume
+metadata:
+  name: sonatypestorage
+  labels:
+      name: sonatypestorage # claim for volume
+spec:
+  capacity:
+      storage: 10Gi
+  accessModes:
+      - ReadWriteOnce
+  hostPath:
+    path: "/Users/elturkeya/nexus"
+    #path: "/home/abdelrahman/jenkins"
+  storageClassName: manual
+  #nfs:
+  #    server: 192.168.14.117 # ip addres of nfs server
+  #    path: "/mnt/nfs-volume"  # path to directory, make sure directory is available
+---
+apiVersion: v1
+kind: PersistentVolumeClaim
+metadata:
+  name: sonatype-registry-data
+spec:
+  storageClassName: manual
+  accessModes:
+  - ReadWriteOnce
+  resources:
+      requests:
+        storage: 10Gi
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: sonatype-service
+spec:
+  ports:
+  - name: sonatype-registry
+    port: 8081
+    protocol: TCP
+    targetPort: 8081
+  - name: sonatype
+    port: 5000
+    protocol: TCP
+    targetPort: 5000
+  selector:
+      app: sonatype-registry
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: sonatype-registry
+  labels:
+      app: sonatype-registry
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: sonatype-registry
+  template:
+    metadata:
+      labels:
+          app: sonatype-registry
+    spec:
+      containers:
+      - image: sonatype/nexus3
+        name: sonatype-registry
+        ports:
+          - containerPort: 8081     
+          - containerPort: 5000
+        volumeMounts:
+          - name: registry-vol
+            mountPath: /nexus-data
+            subPath: manual
+      volumes:
+        - name: registry-vol
+          persistentVolumeClaim:
+            claimName: sonatype-registry-data
+---
+apiVersion: networking.k8s.io/v1
+kind: Ingress
+metadata:
+  name: ingress-nexus
+  annotations:
+    nginx.ingress.kubernetes.io/proxy-body-size: "0"
+    nginx.ingress.kubernetes.io/proxy-read-timeout: "800"
+    nginx.ingress.kubernetes.io/proxy-send-timeout: "800"
+spec:
+  ingressClassName: nginx
+  rules:
+  - host: nexus.local.net
+    http:
+      paths:
+      - pathType: Prefix
+        path: /
+        backend:
+          service:
+            name: sonatype-service
+            port:
+              number: 8081
+
+  - host: nexus.docker.net
+    http:
+      paths:
+      - pathType: Prefix
+        path: /
+        backend:
+          service:
+            name: sonatype-service
+            port:
+              number: 5000  
